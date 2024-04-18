@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Approval</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <script src="https://www.gstatic.com/firebasejs/8.6.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.1/firebase-storage.js"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.2/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <style>
+        body {
+            padding-top: 20px;
+        }
+        .table-responsive {
+            margin-bottom: 20px;
+        }
+        #pdfFrame {
+            width: 100%;
+            height: 400px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h4 class="text-center mb-4">Document for Approval | Agent: <span id="agentCode"></span></h4>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th scope="col">Trade Number</th>
+                    <th scope="col">Branch</th>
+                    <th scope="col">Action</th>
+                </tr>
+            </thead>
+            <tbody id="fileList">
+                <!-- File entries will be inserted here -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- PDF Preview Modal -->
+<div class="modal fade" id="pdfPreviewModal" tabindex="-1" role="dialog" aria-labelledby="pdfPreviewModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="pdfPreviewModalLabel">Trade Document Preview</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <iframe id="pdfFrame" src="" frameborder="0"></iframe>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" id="deletePdf">Sign</button>
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+    // Initialize Firebase
+    const firebaseConfigStorage = {
+        apiKey: "AIzaSyCFVpMEM4m3uG7-0gjlbOcvQHnTkb2-AME",
+        authDomain: "lri-trade-approval.firebaseapp.com",
+        projectId: "lri-trade-approval",
+        storageBucket: "lri-trade-approval.appspot.com",
+        messagingSenderId: "487602206960",
+        appId: "1:487602206960:web:4a090a287bb43f12a6ea35",
+        measurementId: "G-CX26651BHS"
+      };
+    firebase.initializeApp(firebaseConfigStorage);
+    var storage = firebase.storage();
+
+    function getAgentCodeAndName() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const agentCode = urlParams.get('agentcode');
+        let agentName = ""; // Default to an empty string or any default value
+    
+        agentName = agentCode
+    
+        // Set the branch name in the H2 element
+        document.getElementById("agentCode").textContent = agentName;
+    
+        return agentCode;
+    }
+
+    function extractDetailsFromFilename(filename) {
+        // This matches the initial part of the filename up to the first underscore as the trade number
+        const tradeNumMatch = filename.match(/^(.+?)_/); 
+        
+        // This captures digits following the first underscore as the branch number
+        const branchNumMatch = filename.match(/^.+?_(\d+)_/);
+        
+        return {
+            tradeNum: tradeNumMatch ? tradeNumMatch[1] : 'N/A',
+            branchNum: branchNumMatch ? branchNumMatch[1] : 'N/A'
+        };
+    }
+    window.onload = function() {
+        const agentCode = getAgentCodeAndName();
+        if(agentCode) {
+          listFiles(agentCode);
+        }
+      };
+
+      $(document).ready(function() {
+        function openModalWithPdf(url, fullPath) {
+            $('#pdfFrame').attr('src', url);
+            $('#deletePdf').off('click').on('click', function() {
+                const isConfirmed = confirm("Are you sure you want to Sign this Document?");
+                if (isConfirmed) {
+                    deleteFile(fullPath);
+                }
+            });
+            $('#pdfPreviewModal').modal('show');
+        }
+
+        function deleteFile(filePath) {
+            const fileRef = storage.ref().child(filePath);
+            fileRef.delete().then(() => {
+                console.log("File deleted successfully");
+                // Wait for the modal to hide before refreshing the page
+                $('#pdfPreviewModal').modal('hide').on('hidden.bs.modal', function () {
+                    // This function is called after the modal is fully hidden
+                    window.location.reload(); // Refresh the page to update the file list
+                });
+            }).catch((error) => {
+                console.error("Error deleting file:", error);
+            });
+        }
+
+        function listFiles(agentCode) {
+            const listRef = storage.ref().child(`forapproval/agent/${agentCode}`);
+            listRef.listAll()
+                .then((res) => {
+                    const tbody = $('#fileList').empty();
+                    res.items.forEach((itemRef) => {
+                        const { tradeNum, branchNum } = extractDetailsFromFilename(itemRef.name);
+                        itemRef.getDownloadURL().then((url) => {
+                            const row = $('<tr></tr>');
+                            row.append(`<td>${tradeNum}</td>`);
+                            row.append(`<td>${branchNum}</td>`);
+                            const actionCell = $('<td></td>');
+                            const previewButton = $('<button class="btn btn-primary btn-sm">Preview / Sign</button>');
+                            previewButton.on('click', function() { openModalWithPdf(url, itemRef.fullPath); });
+                            actionCell.append(previewButton);
+                            row.append(actionCell);
+                            tbody.append(row);
+                        });
+                    });
+                }).catch((error) => {
+                    console.log(error);
+                });
+        }
+
+        const agentCode = getAgentCodeAndName();
+        if(agentCode) {
+          listFiles(agentCode);
+        }
+    });
+</script>
+
+</body>
+</html>
